@@ -10,8 +10,8 @@ macro_rules! sqr {
     }}
 }
 
-const THRESH_DIST : f32 = 0.3;
-const GRAV_CONSTANT : f32 = 0.0000001;
+const THRESH_DIST : f32 = 0.2;
+const GRAV_CONSTANT : f32 = 0.000000001;
 
 #[derive(Copy, Clone, Debug)]
 struct Point {
@@ -20,15 +20,39 @@ struct Point {
 }
 
 impl Point {
-    fn avg(&self, p : &Point) -> Point {
-        Point {
-            x : (self.x + p.x) / 2.0,
-            y : (self.y + p.y) / 2.0,
-        }
+    const NULL : Point = Point{x:0.0, y:0.0};
+}
+
+#[derive(Copy, Clone, Debug)]
+struct Zone {
+    tl : Point,
+    width : f32,
+}
+
+impl Zone {
+    fn contains(&self, p : &Point) -> bool {
+        self.tl.x <= p.x && p.x < self.tl.x+self.width &&
+        self.tl.y <= p.y && p.y < self.tl.y+self.width
     }
 
+    fn split(&self) -> (Zone, Zone, Zone, Zone) {
+        let w = self.width/2.0;
+        (
+            Zone {width : w, tl : self.tl},
+            Zone {width : w, tl : Point{x:self.tl.x + w, y:self.tl.y}},
+            Zone {width : w, tl : Point{x:self.tl.x, y:self.tl.y + w}},
+            Zone {width : w, tl : Point{x:self.tl.x + w, y:self.tl.y + w}},
+        )
+    }
+}
+
+impl Point {
     fn dir_to(&self, other : &Point) -> f32 {
-        ((other.y - self.y) / (other.x - self.x)).atan()
+        if other.x < self.x {
+            std::f32::consts::PI + ((other.y - self.y) / (other.x - self.x)).atan()
+        } else {
+            ((other.y - self.y) / (other.x - self.x)).atan()
+        }
     }
 
     fn dist_to(&self, other : &Point) -> f32 {
@@ -45,33 +69,15 @@ impl Point {
 #[derive(Debug,Clone)]
 struct Body {
     p : Point,
+    momentum : Point,
     mass : f32,
 }
 
 #[derive(Debug)]
 enum MaybeNode {
-    Nothing,
-    One(Body),
-    Something(Box<Node>),
-}
-
-impl MaybeNode {
-    fn count_bodies(&self) -> usize {
-        use MaybeNode::*;
-        match self {
-            &Nothing => 0,
-            &Something(ref n) => n.count_bodies(),
-            &One(_) => 1,
-        }
-    }
-
-    fn depth(&self) -> u32 {
-        match self {
-            &MaybeNode::Nothing => 0,
-            &MaybeNode::One(_) => 1,
-            &MaybeNode::Something(ref b) => b.depth(),
-        }
-    }
+    Nothing(Zone),
+    One(Zone, Body),
+    Something(Zone, Box<Node>),
 }
 
 #[derive(Debug)]
@@ -80,94 +86,101 @@ struct Node{
     branches : [MaybeNode; 4],
 }
 
-impl Node {
-    fn count_bodies(&self) -> usize {
-        let mut total = 0;
-        for m in self.branches.iter() {
-            total += m.count_bodies();
-        }
-        total
-    }
-    fn depth(&self) -> u32 {
-        let mut m = 0;
-        for i in 0..4 {
-            m = std::cmp::max(m, self.branches[0].depth());
-        }
-        m + 1
-    }
-}
-
 fn rand_body<R : Rng>(r : &mut R) -> Body {
     Body {
         p : Point {
-            x : r.gen::<f32>() * 0.8 + 0.1,
-            y : r.gen::<f32>() * 0.8 + 0.1,
+            x : r.gen::<f32>() * 0.2 + 0.4,
+            y : r.gen::<f32>() * 0.2 + 0.4,
         },
-        mass : r.gen::<f32>() * 10.0,
+        momentum : Point::NULL,
+        mass : r.gen::<f32>() * 6.0 + 1.3,
     }
 }
 
-const WIDTH : f64 = 640.0;
-const HEIGHT : f64 = 480.0;
+const WIDTH : f64 = 900.0;
+const HEIGHT : f64 = 700.0;
 
 fn main() {
     let mut r = Isaac64Rng::from_seed(&[54,43,45,5665]);
-
     let mut bodies : Vec<Body> = Vec::new();
-    for _ in 0..30 {
+    for _ in 0..0 {
         bodies.push(rand_body(&mut r));
     }
-    // println!("count bodies = {}", tree.count_bodies());
-
-    // let depth = tree.depth();
-
-
-
-    let sleep_time = std::time::Duration::from_millis(1000);
-    let mut window: PistonWindow = WindowSettings::new("Hello Piston!", (640, 480))
+    let whole_zone = Zone {tl: Point::NULL, width:1.0};
+    let mut last_mouse : Option<[f64 ; 2]> = None;
+    let mut window: PistonWindow = WindowSettings::new("Hello Piston!", ((WIDTH) as u32, (HEIGHT) as u32))
         .exit_on_esc(true)
         .build()
         .unwrap_or_else(|e| { panic!("Failed to build PistonWindow: {}", e) });
     while let Some(e) = window.next() {
-        while let Some(event) = window.next() {
-            window.draw_2d(&event, | _ , graphics| clear([0.0; 4], graphics));
-            draw_bodies(&bodies, event, &mut window);
-            let tree = make_tree(bodies.to_vec(), Point{x:0.0, y:0.0}, Point{x:1.0, y:1.0});
-            for b in bodies.iter_mut() {
-                let mut impulse = Point {x:0.0, y:0.0};
-                step_for(b, &mut impulse, &tree);
-                b.p.shift(&impulse);
+        if let Some(button) = e.release_args() {
+            if button == Button::Mouse(MouseButton::Left) {
+                if let Some(pos) = last_mouse {
+                    let b = Body {
+                        p : Point {
+                            x : (pos[0] / WIDTH) as f32,
+                            y : (pos[1] / HEIGHT) as f32,
+                        },
+                        momentum : Point::NULL,
+                        mass : r.gen::<f32>() * 6.0 + 1.3,
+                    };
+                    bodies.push(b);
+                    last_mouse = None;
+                }
             }
+        }
 
-            // std::thread::sleep(sleep_time);
-            println!("STEP");
-            // event == ();
-            // window.draw_2d
-            // (
-            //     &event, |context, graphics| {
-            //             // clear([1.0; 4], graphics);
-            //             rectangle([1.0, 0.0, 0.0, 0.3], // red
-            //                       [0.0, 0.0, WIDTH, HEIGHT],
-            //                       context.transform,
-            //                       graphics);
-            //       }
-            // );
+        if let Some(_) = e.mouse_relative_args() {
+            continue;
+        } else if let Some(z) = e.mouse_cursor_args() {
+            last_mouse = Some(z);
+        } else {
+            window.draw_2d(&e, | _ , graphics| clear([0.0; 4], graphics));
+            let tree = make_tree(whole_zone, bodies.to_vec());
+            draw_quads(&e, &mut window, &tree, 0.06);
+            draw_bodies(&bodies, &e, &mut window);
+            for b in bodies.iter_mut() {
+                apply_forces(b, &tree);
+                b.p.shift(&b.momentum);
+            }
+            bodies.retain(|x| whole_zone.contains(&x.p));
         }
     }
 }
 
-fn draw_tree(n : &MaybeNode, tree_depth : u32, event : piston_window::Event, window : &mut piston_window::PistonWindow){
-    unimplemented!();
+fn draw_quads(event : &Event, window : &mut PistonWindow, n : &MaybeNode, opacity : f32) {
+    match n {
+        &MaybeNode::Nothing(_) => (),
+        &MaybeNode::One(ref z, _) => {
+            draw_rect(z, event, window, [1.0, 0.0, 0.0, opacity]);
+        },
+        &MaybeNode::Something(ref z, ref bn) => {
+            draw_rect(z, event, window, [0.0, 0.0, 1.0, opacity]);
+            draw_quads(event, window, &bn.branches[0], opacity);
+            draw_quads(event, window, &bn.branches[1], opacity);
+            draw_quads(event, window, &bn.branches[2], opacity);
+            draw_quads(event, window, &bn.branches[3], opacity);
+        },
+    }
 }
 
-fn draw_bodies(bodies : &Vec<Body>, event : piston_window::Event, window : &mut piston_window::PistonWindow) {
+fn draw_rect(z : &Zone, event : &Event, window : &mut PistonWindow, col : [f32; 4]) {
+    window.draw_2d
+    (
+        event, |context, graphics| {
+                rectangle(col, [(z.tl.x as f64)*WIDTH, (z.tl.y as f64)*HEIGHT, (z.width) as f64 * WIDTH-1.0, (z.width) as f64 * HEIGHT-1.0],
+                          context.transform,
+                          graphics);
+          }
+    );
+}
+
+fn draw_bodies(bodies : &Vec<Body>, event : &Event, window : &mut PistonWindow) {
     for b in bodies {
-        window.draw_2d
-        (
-            &event, |context, graphics| {
-                    // clear([1.0; 4], graphics);
-                    rectangle([1.0, 0.0, 1.0, 1.0], // red
-                              [(b.p.x as f64)*WIDTH, (b.p.y as f64)*HEIGHT, 3.0, 3.0],
+        window.draw_2d(
+            event, |context, graphics| {
+                    rectangle([0.0, 1.0, 1.0, 1.0],
+                              [(b.p.x as f64)*WIDTH, (b.p.y as f64)*HEIGHT, (b.mass*0.6) as f64, (b.mass*0.6) as f64],
                               context.transform,
                               graphics);
               }
@@ -175,63 +188,67 @@ fn draw_bodies(bodies : &Vec<Body>, event : piston_window::Event, window : &mut 
     }
 }
 
-fn step_for(body : &mut Body, impulse : &mut Point, n : &MaybeNode) {
+fn apply_forces(body : &mut Body, n : &MaybeNode) {
     match n {
-        &MaybeNode::Nothing => (),
-        &MaybeNode::One(ref b) => force(body, impulse, b),
-        &MaybeNode::Something(ref x) => {
-            if body.p.dist_to(& x.virtual_body.p) <= THRESH_DIST {
-                force(body, impulse, &x.virtual_body)
+        &MaybeNode::Nothing(_) => (),
+        &MaybeNode::One(_, ref b) => force(body, b),
+        &MaybeNode::Something(_, ref x) => {
+            if body.p.dist_to(& x.virtual_body.p) > THRESH_DIST {
+                // using threshold
+                force(body, &x.virtual_body)
             } else {
                 let mn = & x.branches;
-                step_for(body, impulse, &mn[0]);
-                step_for(body, impulse, &mn[1]);
-                step_for(body, impulse, &mn[2]);
-                step_for(body, impulse, &mn[3]);
+                for i in 0..4 {
+                    apply_forces(body, &mn[i]);
+                }
             };
         },
     }
 }
 
-fn same_object<T>(a: &T, b: &T) -> bool {
-    a as *const T == b as *const T
-}
-
-fn force(pulled : &mut Body, impulse : &mut Point, other : &Body) {
+fn force(pulled : &mut Body, other : &Body) {
     let dist = pulled.p.dist_to(& other.p);
-    if dist == 0.0 {
+    if dist <= 0.0 {
         return;
     }
     let dir = pulled.p.dir_to(& other.p);
-    let power = GRAV_CONSTANT * other.mass / sqr!(dist);
-    impulse.x += power * (dir).cos();
-    impulse.y += power * (dir).sin();
+    let power = GRAV_CONSTANT * other.mass / sqr!(dist + 0.01);
+    let (dx, dy) = (power * (dir).cos(), power * (dir).sin());
+    pulled.momentum.x += dx / pulled.mass;
+    pulled.momentum.y += dy / pulled.mass;
 }
 
-fn make_tree(mut bodies : Vec<Body>, tl : Point, br : Point) -> MaybeNode {
+fn make_tree(z : Zone, mut bodies : Vec<Body>) -> MaybeNode {
     if bodies.len() == 0 {
-        MaybeNode::Nothing
+        MaybeNode::Nothing(z)
     } else if bodies.len() == 1 {
-        MaybeNode::One(bodies.pop().unwrap())
+        MaybeNode::One(z, bodies.pop().unwrap())
     } else {
-        let (avgx, avgy) = ((tl.x + br.x)/2.0, (tl.y + br.y)/2.0);
-        let avg = Point{x:avgx, y:avgy};
-        let mut b00 : Vec<Body> = vec![];
-        let mut b01 : Vec<Body> = vec![];
-        let mut b10 : Vec<Body> = vec![];
-        let mut b11 : Vec<Body> = vec![];
-        let mut virtual_body = Body {p : Point{x:0.0, y:0.0}, mass:0.0};
+        let split_zone = z.split();
+
+        let mut b0 : Vec<Body> = vec![];
+        let mut b1 : Vec<Body> = vec![];
+        let mut b2 : Vec<Body> = vec![];
+        let mut b3 : Vec<Body> = vec![];
+        let mut virtual_body = Body {
+            p : Point::NULL,
+            mass : 0.0,
+            momentum : Point::NULL,
+        };
         for b in bodies {
-            let relevant = if b.p.x < avgx {
-                if b.p.y < avgy {&mut b00} else {&mut b10}
-            } else {
-                if b.p.y < avgy {&mut b01} else {&mut b11}
+            let relevant = if split_zone.0.contains(&b.p){
+                    &mut b0
+                } else if split_zone.1.contains(&b.p){
+                    &mut b1
+                } else if split_zone.2.contains(&b.p){
+                    &mut b2
+                } else if split_zone.3.contains(&b.p){
+                    &mut b3
+                } else {
+                panic!(format!("body {:?} not in {:?}", &b, &z));
             };
-            if b.p.x < tl.x || b.p.x > br.x || b.p.y < tl.y || b.p.y > br.y {
-                panic!(format!("body {:?} not inbetween tl {:?} and br {:?}", b.p, tl, br));
-            }
-            virtual_body.p.x += b.p.x;
-            virtual_body.p.y += b.p.y;
+            virtual_body.p.x += b.p.x * b.mass;
+            virtual_body.p.y += b.p.y * b.mass;
             virtual_body.mass += b.mass;
             relevant.push(b);
         }
@@ -240,12 +257,12 @@ fn make_tree(mut bodies : Vec<Body>, tl : Point, br : Point) -> MaybeNode {
         let n = Node {
             virtual_body : virtual_body,
             branches : [
-                make_tree(b00, tl, avg),
-                make_tree(b01, Point{x:avgx, y:tl.y}, Point{x:br.x, y:avgy}),
-                make_tree(b10, Point{x:tl.x, y:avgy}, Point{x:avgx, y:br.y}),
-                make_tree(b11, avg, br),
+                make_tree(split_zone.0, b0),
+                make_tree(split_zone.1, b1),
+                make_tree(split_zone.2, b2),
+                make_tree(split_zone.3, b3),
             ]
         };
-        MaybeNode::Something(Box::new(n))
+        MaybeNode::Something(z, Box::new(n))
     }
 }
