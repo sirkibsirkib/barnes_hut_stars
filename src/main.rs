@@ -11,7 +11,7 @@ macro_rules! sqr {
 }
 
 const THRESH_DIST : f32 = 0.2;
-const GRAV_CONSTANT : f32 = 0.000000001;
+const GRAV_CONSTANT : f32 = 0.0000000004;
 
 #[derive(Copy, Clone, Debug)]
 struct Point {
@@ -86,26 +86,12 @@ struct Node{
     branches : [MaybeNode; 4],
 }
 
-fn rand_body<R : Rng>(r : &mut R) -> Body {
-    Body {
-        p : Point {
-            x : r.gen::<f32>() * 0.2 + 0.4,
-            y : r.gen::<f32>() * 0.2 + 0.4,
-        },
-        momentum : Point::NULL,
-        mass : r.gen::<f32>() * 6.0 + 1.3,
-    }
-}
-
 const WIDTH : f64 = 900.0;
 const HEIGHT : f64 = 700.0;
 
 fn main() {
     let mut r = Isaac64Rng::from_seed(&[54,43,45,5665]);
     let mut bodies : Vec<Body> = Vec::new();
-    for _ in 0..0 {
-        bodies.push(rand_body(&mut r));
-    }
     let whole_zone = Zone {tl: Point::NULL, width:1.0};
     let mut last_mouse : Option<[f64 ; 2]> = None;
     let mut window: PistonWindow = WindowSettings::new("Hello Piston!", ((WIDTH) as u32, (HEIGHT) as u32))
@@ -137,7 +123,7 @@ fn main() {
         } else {
             window.draw_2d(&e, | _ , graphics| clear([0.0; 4], graphics));
             let tree = make_tree(whole_zone, bodies.to_vec());
-            draw_quads(&e, &mut window, &tree, 0.06);
+            draw_quads(&e, &mut window, &tree, 0.03);
             draw_bodies(&bodies, &e, &mut window);
             for b in bodies.iter_mut() {
                 apply_forces(b, &tree);
@@ -165,9 +151,7 @@ fn draw_quads(event : &Event, window : &mut PistonWindow, n : &MaybeNode, opacit
 }
 
 fn draw_rect(z : &Zone, event : &Event, window : &mut PistonWindow, col : [f32; 4]) {
-    window.draw_2d
-    (
-        event, |context, graphics| {
+    window.draw_2d(event, |context, graphics| {
                 rectangle(col, [(z.tl.x as f64)*WIDTH, (z.tl.y as f64)*HEIGHT, (z.width) as f64 * WIDTH-1.0, (z.width) as f64 * HEIGHT-1.0],
                           context.transform,
                           graphics);
@@ -177,8 +161,7 @@ fn draw_rect(z : &Zone, event : &Event, window : &mut PistonWindow, col : [f32; 
 
 fn draw_bodies(bodies : &Vec<Body>, event : &Event, window : &mut PistonWindow) {
     for b in bodies {
-        window.draw_2d(
-            event, |context, graphics| {
+        window.draw_2d(event, |context, graphics| {
                     rectangle([0.0, 1.0, 1.0, 1.0],
                               [(b.p.x as f64)*WIDTH, (b.p.y as f64)*HEIGHT, (b.mass*0.6) as f64, (b.mass*0.6) as f64],
                               context.transform,
@@ -225,7 +208,6 @@ fn make_tree(z : Zone, mut bodies : Vec<Body>) -> MaybeNode {
         MaybeNode::One(z, bodies.pop().unwrap())
     } else {
         let split_zone = z.split();
-
         let mut b0 : Vec<Body> = vec![];
         let mut b1 : Vec<Body> = vec![];
         let mut b2 : Vec<Body> = vec![];
