@@ -33,6 +33,15 @@ impl Body {
         self.p.shift(&self.momentum);
     }
 
+    pub fn new_with_momentum(p : Point, mass : f32, momentum : Point) -> Body {
+        Body {
+            p : p,
+            momentum : momentum,
+            mass : mass,
+            radius : Self::radius_from_mass(mass),
+        }
+    }
+
     pub fn new(p : Point, mass : f32) -> Body {
         Body {
             p : p,
@@ -114,12 +123,26 @@ impl Point {
         }
     }
 
-    fn dist_to(&self, other : &Point) -> f32 {
+    pub fn sub(&self, other : &Point) -> Point {
+        Point {
+            x : self.x-other.x,
+            y : self.y-other.y,
+        }
+    }
+
+    pub fn mult(&self, m : f32) -> Point {
+        Point {
+            x : self.x*m,
+            y : self.y*m,
+        }
+    }
+
+    pub fn dist_to(&self, other : &Point) -> f32 {
         (sqr!(self.x - other.x) + sqr!(self.y - other.y)).sqrt()
     }
 
     #[inline]
-    fn shift (&mut self, other : &Point) {
+    pub fn shift (&mut self, other : &Point) {
         self.x += other.x;
         self.y += other.y;
     }

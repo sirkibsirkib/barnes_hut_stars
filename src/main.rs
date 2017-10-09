@@ -13,7 +13,7 @@ const WIDTH : f64 = 700.0;
 const HEIGHT : f64 = 700.0;
 
 const THRESH_DIST : f32 = 0.2;
-const GRAV_CONSTANT : f32 = 0.000000004;
+const GRAV_CONSTANT : f32 = 0.00000001;
 
 fn main() {
     let mut r = Isaac64Rng::from_seed(&[54,43,45,5665]);
@@ -21,7 +21,9 @@ fn main() {
     let whole_zone = Zone {tl: Point::NULL, width:1.0};
     let mut tree : MaybeNode = MaybeNode::Nothing(whole_zone);
 
-    let mut last_mouse : Option<[f64 ; 2]> = None;
+    let mut mouse_at : Option<[f64 ; 2]> = None;
+    let mut clicked_point : Option<Point> = None;
+
     let mut window: PistonWindow = WindowSettings::new("N-Body!", ((WIDTH) as u32, (HEIGHT) as u32))
         .exit_on_esc(true)
         .build()
@@ -37,21 +39,38 @@ fn main() {
         lazy: false,
     };
     window.set_event_settings(event_settings);
+    //PISTON WINDOW EVENT LOOP
     while let Some(e) = window.next() {
+
+        if let Some(_) = e.press_args() {
+            if let Some(m) = mouse_at {
+                clicked_point = Some(
+                    Point {
+                        x : (m[0] / WIDTH) as f32,
+                        y : (m[1] / HEIGHT) as f32,
+                    },
+                );
+            }
+        }
+
         if let Some(button) = e.release_args() {
             if button == Button::Mouse(MouseButton::Left) {
-                if let Some(pos) = last_mouse {
-                    let b = Body::new(
-                        Point {
-                            x : (pos[0] / WIDTH) as f32,
-                            y : (pos[1] / HEIGHT) as f32,
-                        },
+                if let (Some(rel_pos), Some(clicked_point)) = (mouse_at, clicked_point) {
+                    let at = Point {
+                        x : (rel_pos[0] / WIDTH) as f32,
+                        y : (rel_pos[1] / HEIGHT) as f32,
+                    };
+                    let moment_of_force = at.sub(&clicked_point);
+                    let b = Body::new_with_momentum(
+                        clicked_point,
                         r.gen::<f32>() * 9.0 + 1.0,
+                        moment_of_force.mult(0.01),
                     );
                     bodies.push(b);
-                    last_mouse = None;
+                    mouse_at = None;
                 }
             }
+            clicked_point = None;
         }
 
         if let Some(_) = e.update_args() {
@@ -70,14 +89,8 @@ fn main() {
             draw_bodies(&bodies, &e, &mut window);
         }
 
-
-
-        if let Some(_) = e.mouse_relative_args() {
-            continue;
-        } else if let Some(z) = e.mouse_cursor_args() {
-            last_mouse = Some(z);
-        } else {
-
+        if let Some(z) = e.mouse_cursor_args() {
+            mouse_at = Some(z);
         }
     }
 }
