@@ -42,14 +42,29 @@ fn main() {
     //PISTON WINDOW EVENT LOOP
     while let Some(e) = window.next() {
 
-        if let Some(_) = e.press_args() {
-            if let Some(m) = mouse_at {
-                clicked_point = Some(
-                    Point {
-                        x : (m[0] / WIDTH) as f32,
-                        y : (m[1] / HEIGHT) as f32,
-                    },
-                );
+        if let Some(_) = e.update_args() {
+            tree = make_tree(whole_zone, bodies.to_vec());
+            for b in bodies.iter_mut() {
+                apply_forces(b, &tree);
+                b.shift_with_momentum();
+            }
+            bodies = scrutinize(bodies,  &whole_zone);
+        }
+
+        if let Some(button) = e.press_args() {
+            if button == Button::Mouse(MouseButton::Left) {
+                if let Some(m) = mouse_at {
+                    clicked_point = Some(
+                        Point {
+                            x : (m[0] / WIDTH) as f32,
+                            y : (m[1] / HEIGHT) as f32,
+                        },
+                    );
+                }
+            } else if button  == Button::Keyboard(Key::Space) {
+                let (x, y) = recenter(tree, bodies);
+                tree = x;
+                bodies = y;
             }
         }
 
@@ -73,16 +88,6 @@ fn main() {
             clicked_point = None;
         }
 
-        if let Some(_) = e.update_args() {
-            tree = make_tree(whole_zone, bodies.to_vec());
-            // println!("UPDATE");
-            for b in bodies.iter_mut() {
-                apply_forces(b, &tree);
-                b.shift_with_momentum();
-            }
-            bodies = scrutinize(bodies,  &whole_zone);
-        }
-
         if let Some(_) = e.render_args() {
             window.draw_2d(&e, | _ , graphics| clear([0.0; 4], graphics));
             draw_quads(&e, &mut window, &tree, 0.03);
@@ -92,6 +97,33 @@ fn main() {
         if let Some(z) = e.mouse_cursor_args() {
             mouse_at = Some(z);
         }
+    }
+}
+
+fn recenter(mut tree : MaybeNode, mut bodies : Vec<Body>) -> (MaybeNode, Vec<Body>) {
+    use MaybeNode::*;
+    match tree {
+        Something(zone, ref mut bn) => {
+            let shift_delta : Point = Point::CENTER.sub(& bn.virtual_body.p);
+            for b in bodies.iter_mut() {
+                b.p.shift(&shift_delta);
+            }
+            bodies.retain(|x| zone.contains(& x.p));
+            let x = make_tree(zone, bodies.to_vec());
+            (x, bodies)
+        },
+        One(zone, ref mut body) => {
+            let shift_delta : Point = Point::CENTER.sub(& body.p);
+            for b in bodies.iter_mut() {
+                b.p.shift(&shift_delta);
+            }
+            bodies.retain(|x| zone.contains(& x.p));
+            let x = make_tree(zone, bodies.to_vec());
+            (x, bodies)
+        },
+        Nothing(_) => {
+            (tree, bodies)
+        },
     }
 }
 

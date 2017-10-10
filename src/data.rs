@@ -89,6 +89,7 @@ pub struct Point {
 
 impl Point {
     pub const NULL : Point = Point{x:0.0, y:0.0};
+    pub const CENTER : Point = Point{x:0.5, y:0.5};
 }
 
 #[derive(Copy, Clone, Debug)]
